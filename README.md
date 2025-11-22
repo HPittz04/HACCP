@@ -1,45 +1,43 @@
-# HACCP Guard Dashboard (Node.js + Express + EJS)
+# HACCP Guard Monorepo
 
-Admin leve para visualizar sensores, alarmes e estado do sistema. Feito para consumir a tua API FastAPI.
+Monorepo Node.js/TypeScript para gestão HACCP com API REST, renderização server-side EJS e sincronização offline-first.
 
-## 🚀 Setup rápido
+## Estrutura
+- `haccp-guard/server` – API Express, Prisma e vistas EJS.
+
+## Requisitos
+- Node.js 20
+- PostgreSQL
+
+## Setup
 ```bash
+cd haccp-guard/server
 cp .env.example .env
 npm install
-npm start
-# abre http://localhost:3000
+npx prisma migrate dev
+npx prisma db seed
+npm run dev
 ```
 
-Variáveis principais no `.env`:
-- `DASHBOARD_API_BASE` → URL da tua API (ex.: `http://api:8000` em Docker)
-- `MOCK=1` → usa dados de exemplo caso a API falhe (útil em dev)
+## Endpoints principais
+- `POST /api/auth/pin` – login por PIN.
+- `GET/POST /api/users` – gestão de utilizadores (admin).
+- `GET/POST/PUT /api/assets` – inventário e limites.
+- `GET/POST /api/round-templates` – templates de rondas.
+- `POST /api/rounds/generate` – gera rondas do dia.
+- `GET /api/rounds` – listar rondas.
+- `POST /api/rounds/:id/start|done` – estados.
+- `POST /api/measurements` – registo com validação de limites e corretiva opcional.
+- `POST /api/corrective-actions` – criar corretiva.
+- `POST /api/sync/batch` – sincronização offline com HMAC e idempotência por `device_id + id_local`.
+- `GET /api/reports/csv|pdf` – exportações.
 
-## 🐳 Docker
+## Testes
 ```bash
-docker build -t haccp-dashboard .
-docker run --rm -p 3000:3000 --env-file .env haccp-dashboard
+npm test
 ```
-Ou usa o `docker-compose.example.yml` e adapta ao teu stack.
 
-## 📁 Estrutura
-- `server.js` → bootstrap do Express/EJS
-- `routes/` → rotas (overview, sensores, alarmes)
-- `lib/apiClient.js` → chamadas à API FastAPI (com fallback mock)
-- `views/` → EJS templates (layout + páginas)
-- `public/` → assets estáticos
-
-## 🔒 Segurança (próximos passos)
-- Ativar `helmet` com CSP adequada
-- Rate limit e autenticação com roles (`admin`, `tech`, `viewer`)
-- Tornar o dashboard acessível apenas via VPN/IP allowlist
-
-## 📌 Páginas incluídas
-- **Overview**: totais, online, alarmes abertos, última sync
-- **Sensores**: tabela com temp, RSSI, bateria, last update
-- **Alarmes**: tabela de alarmes abertos
-
-## 🔗 Integração com a API
-Ajusta `lib/apiClient.js` para corresponder aos teus endpoints reais:
-- `GET /overview`
-- `GET /sensors`
-- `GET /alarms?status=open`
+## Notas
+- RBAC simples com roles `operator`, `supervisor`, `admin`.
+- Rate limit aplicado a `/api/*` e Helmet configurado.
+- Logger com pino e request-id do pino-http.
