@@ -1,0 +1,13 @@
+<%- include('../layouts/layout', { title: 'Medições recentes' }) %>
+<h1>Medições recentes</h1>
+<form class="row g-2 mb-3">
+  <div class="col"><input class="form-control" placeholder="Data" /></div>
+  <div class="col"><input class="form-control" placeholder="Asset" /></div>
+  <div class="col"><input class="form-control" placeholder="Operador" /></div>
+  <div class="col"><button class="btn btn-secondary">Filtrar</button></div>
+  <div class="col text-end"><a class="btn btn-outline-primary" href="/api/reports/csv">Exportar CSV</a></div>
+</form>
+<table class="table table-hover">
+  <thead><tr><th>Data</th><th>Asset</th><th>Valor</th><th>Operador</th></tr></thead>
+  <tbody><tr><td>-</td><td>-</td><td>-</td><td>-</td></tr></tbody>
+</table>

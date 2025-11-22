@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Relatório de Medições</title>
+    <style>
+      body { font-family: Arial, sans-serif; }
+      table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+      th, td { border: 1px solid #ccc; padding: 6px; font-size: 12px; }
+      th { background: #f4f4f4; }
+    </style>
+  </head>
+  <body>
+    <h1>Relatório de Medições</h1>
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Asset</th>
+          <th>Valor (°C)</th>
+          <th>Em limite</th>
+          <th>Data</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% measurements.forEach((m) => { %>
+          <tr>
+            <td><%= m.id %></td>
+            <td><%= m.asset.name %></td>
+            <td><%= m.valueC %></td>
+            <td><%= m.inLimit %></td>
+            <td><%= m.takenAt.toISOString() %></td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  </body>
+</html>

@@ -1,0 +1,139 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  operator
+  supervisor
+  admin
+}
+
+enum AssetType {
+  equipment
+  food
+  location
+}
+
+enum RoundStatus {
+  scheduled
+  in_progress
+  done
+  missed
+}
+
+model User {
+  id        String   @id @default(uuid())
+  username  String   @unique
+  pinHash   String?
+  nfcUid    String?  @unique
+  role      Role
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  measurements      Measurement[]
+  correctiveActions CorrectiveAction[]
+}
+
+model Device {
+  id        String  @id
+  secret    String
+  label     String?
+  lastSeen  DateTime?
+  firmware  String?
+  createdAt DateTime @default(now())
+}
+
+model Asset {
+  id         String   @id @default(uuid())
+  name       String
+  type       AssetType
+  location   String?
+  code       String?  @unique
+  limitMinC  Float?
+  limitMaxC  Float?
+  notes      String?
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  measurements Measurement[]
+}
+
+model RoundTemplate {
+  id         String   @id @default(uuid())
+  name       String
+  schedule   String
+  assetIds   String
+  createdAt  DateTime @default(now())
+  createdBy  String?
+  rounds     Round[]
+}
+
+model Round {
+  id         String      @id @default(uuid())
+  template   RoundTemplate? @relation(fields: [templateId], references: [id])
+  templateId String?
+  plannedAt  DateTime
+  status     RoundStatus @default(scheduled)
+  assignedTo String?
+  createdAt  DateTime @default(now())
+  measurements Measurement[]
+}
+
+model Measurement {
+  id           String   @id @default(uuid())
+  round        Round?   @relation(fields: [roundId], references: [id])
+  roundId      String?
+  asset        Asset    @relation(fields: [assetId], references: [id])
+  assetId      String
+  user         User?    @relation(fields: [userId], references: [id])
+  userId       String?
+  deviceId     String?
+  takenAt      DateTime
+  valueC       Float
+  stable       Boolean  @default(false)
+  inLimit      Boolean?
+  limitMinC    Float?
+  limitMaxC    Float?
+  notes        String?
+  createdAt    DateTime @default(now())
+  correctiveAction CorrectiveAction?
+  @@index([assetId, takenAt(sort: Desc)])
+}
+
+model CorrectiveAction {
+  id             String @id @default(uuid())
+  measurement    Measurement @relation(fields: [measurementId], references: [id])
+  measurementId  String @unique
+  actionType     String
+  comment        String?
+  performedBy    User?   @relation(fields: [performedById], references: [id])
+  performedById  String?
+  performedAt    DateTime @default(now())
+}
+
+model StockItem {
+  id         String   @id @default(uuid())
+  name       String
+  lot        String?
+  quantity   Float?
+  unit       String?
+  location   String?
+  expiresAt  DateTime?
+  status     String   @default("ok")
+  createdAt  DateTime @default(now())
+}
+
+model Calibration {
+  id            String   @id @default(uuid())
+  probeSerial   String?
+  method        String?
+  refTempC      Float?
+  measuredC     Float?
+  offsetC       Float?
+  performedAt   DateTime?
+  performedById String?
+  certificateUrl String?
+}

@@ -1,0 +1,25 @@
+<%- include('../layouts/layout', { title: 'Detalhe da ronda' }) %>
+<h1>Detalhe da ronda</h1>
+<table class="table table-striped">
+  <thead>
+    <tr>
+      <th>Ponto</th>
+      <th>Limites</th>
+      <th>Último registo</th>
+      <th>Estado</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Asset exemplo</td>
+      <td>-2°C a 4°C</td>
+      <td>3.1°C</td>
+      <td><span class="badge bg-success">OK</span></td>
+    </tr>
+  </tbody>
+</table>
+<canvas id="assetChart" height="120"></canvas>
+<script>
+  const ctx = document.getElementById('assetChart');
+  new Chart(ctx, { type: 'line', data: { labels: [], datasets: [{ label: 'Últimas 24h', data: [] }] } });
+</script>
