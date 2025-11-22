@@ -1,0 +1,31 @@
+{
+  "name": "haccp-dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "NODE_ENV=development nodemon server.js"
+  },
+  "dependencies": {
+    "@fortawesome/fontawesome-free": "^7.0.1",
+    "axios": "^1.7.2",
+    "bootstrap": "^5.3.8",
+    "chart.js": "^4.5.0",
+    "chartjs-adapter-date-fns": "^3.0.0",
+    "cookie-session": "^2.0.0",
+    "dotenv": "^16.4.5",
+    "ejs": "^3.1.10",
+    "express": "^4.19.2",
+    "express-ejs-layouts": "^2.5.1",
+    "gridstack": "^12.3.3",
+    "helmet": "^7.1.0",
+    "jspdf": "^3.0.2",
+    "jspdf-autotable": "^5.0.2",
+    "morgan": "^1.10.0",
+    "sortablejs": "^1.15.6"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  }
+}

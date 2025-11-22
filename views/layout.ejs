@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title><%= appName %> • <%= page || "" %></title>
+
+  <!-- CSS local -->
+  <link rel="stylesheet" href="/vendor/bootstrap/dist/css/bootstrap.min.css" />
+  <link rel="stylesheet" href="/vendor/@fortawesome/fontawesome-free/css/all.min.css" />
+  <link href="/vendor/gridstack/dist/gridstack.min.css" rel="stylesheet"/>
+
+  <style>
+    :root {
+      --sb-width: 240px;
+    }
+    body { background:#f8f9fa; }
+    .app-shell { min-height: 100vh; }
+
+    /* Sidebar */
+    .sidebar {
+      position: fixed;
+      top: 0; left: 0;
+      width: var(--sb-width);
+      height: 100%;
+      background: #ffffff;
+      border-right: 1px solid #e9ecef;
+      padding: 16px 12px;
+      z-index: 1030;
+    }
+    .sidebar .brand {
+      display:flex; align-items:center; gap:.5rem;
+      font-weight: 700; font-size: 1.1rem;
+      margin-bottom: 12px;
+    }
+    .sidebar .brand i { color:#6f42c1; } /* toque roxo argon-like */
+    .sidebar .nav-link {
+      border-radius: .5rem;
+      color:#495057;
+    }
+    .sidebar .nav-link.active {
+      background:#e9ecef;
+      color:#212529;
+      font-weight: 600;
+    }
+    .sidebar .nav-link i {
+      width: 1.25rem; text-align:center; margin-right:.5rem;
+    }
+
+    /* Topbar (dentro do main) */
+    .topbar {
+      height: 56px;
+      border-bottom: 1px solid #e9ecef;
+      background: #fff;
+      display:flex; align-items:center; justify-content: flex-end;
+      padding: 0 16px;
+      position: sticky; top:0; z-index: 1020;
+    }
+
+    /* Content area */
+    .content {
+      margin-left: var(--sb-width);
+      padding: 16px;
+    }
+
+    /* Gráficos responsivos */
+    .chart-wrap { position: relative; height: 260px; }
+    .chart-wrap canvas { width: 100% !important; height: 100% !important; }
+
+    /* Mobile: sidebar colapsa */
+    @media (max-width: 991.98px) {
+      .sidebar { transform: translateX(-100%); transition: transform .2s ease; }
+      .sidebar.show { transform: translateX(0); }
+      .content { margin-left: 0; }
+      .topbar { justify-content: space-between; }
+    }
+
+    /* Gauge compacta e legível */
+    .gauge-wrap{ position:relative; height:180px; }
+    .gauge-wrap canvas{ width:100% !important; height:100% !important; }
+    .gauge-center{
+      position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+      font-weight:700; font-size:1.6rem;
+    }
+.gauge-sub{ position:absolute; bottom:8px; width:100%; text-align:center; font-size:.85rem; color:#6c757d; }
+
+
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+
+    <!-- Sidebar -->
+    <aside id="sidebar" class="sidebar">
+      <div class="brand">
+        <i class="fa-solid fa-bolt"></i> <span>HACCP Guard</span>
+      </div>
+
+      <div class="d-grid gap-2 mb-3 d-lg-none">
+        <button id="closeSidebar" class="btn btn-outline-secondary btn-sm">
+          <i class="fa fa-times"></i> Fechar
+        </button>
+      </div>
+
+      <nav class="nav flex-column gap-1">
+        <a class="nav-link <%= page==='overview' ? 'active' : '' %>" href="/">
+          <i class="fa-solid fa-gauge"></i> Dashboard
+        </a>
+        <a class="nav-link <%= page==='sensors' ? 'active' : '' %>" href="/sensores">
+          <i class="fa-solid fa-microchip"></i> Sensores
+        </a>
+        <a class="nav-link <%= page==='alarms' ? 'active' : '' %>" href="/alarmes">
+          <i class="fa-solid fa-bell"></i> Alarmes
+        </a>
+      </nav>
+      <hr class="my-3">
+      <div class="text-muted small px-2">
+        <div><i class="fa-regular fa-circle-dot me-1"></i><%= env %></div>
+        <div class="mt-1">© <script>document.write(new Date().getFullYear())</script> HACCP Guard</div>
+      </div>
+    </aside>
+
+    <!-- Main -->
+    <main>
+      <div class="topbar">
+        <button id="openSidebar" class="btn btn-outline-secondary btn-sm d-lg-none">
+          <i class="fa fa-bars"></i>
+        </button>
+        <div class="ms-auto d-flex align-items-center gap-2">
+          <span class="text-muted small d-none d-md-inline"><%= env %></span>
+          <i class="fa fa-user"></i>
+        </div>
+      </div>
+
+      <!-- IMPORTANTE: Chart.js antes do body da página -->
+      <script src="/vendor/chart.js/dist/chart.umd.js"></script>
+      <script src="/vendor/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.umd.js"></script>
+
+      <div class="content">
+        <%- body %>
+      </div>
+    </main>
+  </div>
+
+  <!-- JS local -->
+  <script src="/vendor/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="/vendor/sortablejs/Sortable.min.js"></script>
+
+  <script>
+    // Toggle sidebar no mobile
+    const sb = document.getElementById('sidebar');
+    document.getElementById('openSidebar')?.addEventListener('click', ()=> sb.classList.add('show'));
+    document.getElementById('closeSidebar')?.addEventListener('click', ()=> sb.classList.remove('show'));
+    // Fecha ao clicar fora (mobile)
+    document.addEventListener('click', (e)=>{
+      if (window.innerWidth >= 992) return;
+      if (!sb.classList.contains('show')) return;
+      const inside = sb.contains(e.target) || e.target.id==='openSidebar';
+      if (!inside) sb.classList.remove('show');
+    });
+  </script>
+</body>
+</html>

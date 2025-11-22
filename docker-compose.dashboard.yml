@@ -1,0 +1,19 @@
+version: "3.9"
+services:
+  dashboard:
+    build: ./dashboard   # coloque o código do dashboard nesta pasta (ou mude para 'image: haccp-dashboard:latest')
+    container_name: haccp-dashboard
+    env_file:
+      - ./dashboard/.env
+    depends_on:
+      - api
+    ports:
+      - "3000:3000"      # altere/feche em produção
+    networks:
+      - backend
+    restart: unless-stopped
+
+networks:
+  backend:
+    external: true
+    name: backend

@@ -1,0 +1,29 @@
+<div class="card">
+  <div class="card-header pb-0">
+    <h6>Alarmes</h6>
+  </div>
+  <div class="table-responsive">
+    <table class="table align-items-center mb-0">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Sensor</th>
+          <th>Tipo</th>
+          <th>Valor</th>
+          <th>Desde</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% alarmes.forEach(a => { %>
+          <tr>
+            <td><%= a.id %></td>
+            <td><%= a.sensor_id %></td>
+            <td><%= a.type %> (<%= a.threshold %>)</td>
+            <td><%= a.value %></td>
+            <td><%= a.since %></td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  </div>
+</div>

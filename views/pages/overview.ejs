@@ -1,0 +1,396 @@
+<!-- Estilos específicos desta página (gráficos + gauge) -->
+<style>
+  .chart-wrap { position: relative; height: 260px; }
+  .chart-wrap canvas { width: 100% !important; height: 100% !important; }
+
+  .gauge-wrap { position: relative; height: 180px; }
+  .gauge-wrap canvas { width: 100% !important; height: 100% !important; }
+  .gauge-center {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 1.6rem;
+  }
+  .gauge-sub { position: absolute; bottom: 8px; width: 100%; text-align: center; font-size: .85rem; color: #6c757d; }
+
+  .card-header { user-select: none; }
+  .sortable-ghost { opacity: .4; }
+  .sortable-chosen { transform: scale(1.01); }
+  .widget-col { list-style: none; }
+
+  /* cartões/colunas de widgets */
+  .widget-col { margin-bottom: 1rem; }
+</style>
+
+<!-- Ações rápidas -->
+<div class="d-flex gap-2 mb-3">
+  <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#addWidgetModal">+ Adicionar widget</button>
+  <a class="btn btn-sm btn-outline-secondary" href="/sensores">Ver sensores</a>
+  <a class="btn btn-sm btn-outline-secondary" href="/alarmes">Ver alarmes</a>
+</div>
+
+<!-- Cartões de resumo (fixos) -->
+<div class="row gy-4 gx-3 mb-3">
+  <div class="col-md-4">
+    <div class="card h-100">
+      <div class="card-body">
+        <p class="text-uppercase text-muted mb-1">SENSORES</p>
+        <h3 class="mb-0"><%= data.sensors_online %>/<%= data.sensors_total %></h3>
+        <small class="text-success">online</small>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card h-100">
+      <div class="card-body">
+        <p class="text-uppercase text-muted mb-1">ALARMES ABERTOS</p>
+        <h3 class="mb-0"><%= data.alarms_open %></h3>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card h-100">
+      <div class="card-header"><strong>Última sincronização</strong></div>
+      <div class="card-body"><span><%= data.last_sync %></span></div>
+    </div>
+  </div>
+</div>
+
+<!-- Área de widgets (arrastáveis) -->
+<div id="widgets" class="row gy-4 gx-3 mt-2"></div>
+
+<!-- Modal: adicionar widget -->
+<div class="modal fade" id="addWidgetModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <form class="modal-content" id="addWidgetForm">
+      <div class="modal-header">
+        <h5 class="modal-title">Adicionar widget</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-2">
+          <label class="form-label">Tipo</label>
+          <select class="form-select" name="type" required>
+            <option value="chart_status">Gráfico — Estado dos sensores</option>
+            <option value="chart_temps">Gráfico — Temperatura por sensor (atual)</option>
+            <option value="chart_trend">Gráfico — Tendência de temperatura</option>
+            <option value="card_temp">Card — Temperatura atual (gauge)</option>
+            <option value="table_alarms">Tabela — Alarmes abertos</option>
+          </select>
+        </div>
+        <div class="mb-2">
+          <label class="form-label">Sensor (se aplicável)</label>
+          <select class="form-select" name="sensor_id">
+            <option value="">—</option>
+            <% (sensores||[]).forEach(s=>{ %>
+              <option value="<%= s.id %>"><%= s.name || s.id %></option>
+            <% }) %>
+          </select>
+        </div>
+        <div class="mb-2">
+          <label class="form-label">Título</label>
+          <input class="form-control" name="title" placeholder="Ex.: Fridge 1">
+        </div>
+        <div class="row">
+          <div class="col-6">
+            <label class="form-label">Largura (colunas)</label>
+            <input class="form-control" name="w" type="number" min="3" max="12" value="6">
+          </div>
+          <div class="col-6">
+            <label class="form-label">Altura (linhas)</label>
+            <input class="form-control" name="h" type="number" min="1" max="4" value="1">
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button id="addWidgetSubmit" type="button" class="btn btn-primary">Adicionar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  /* ---------- Dados do servidor ---------- */
+  const total = <%= Number(data.sensors_total || 0) %>;
+  const online = <%= Number(data.sensors_online || 0) %>;
+  const offline = Math.max(total - online, 0);
+
+  const sensores = <%- JSON.stringify(sensores || []) %>;
+  const labels = sensores.map(s => s.name || s.id);
+  const temps  = sensores.map(s => typeof s.temp === "number" ? s.temp : null);
+  const rssis  = sensores.map(s => s.rssi);
+  const batt   = sensores.map(s => s.battery);
+
+  /* ---------- Persistência híbrida ---------- */
+  const LS_KEY = "haccp_widgets_v3";
+  const DEFAULT_WIDGETS = [
+    { id: "w_status", type: "chart_status", title: "Estado dos sensores", w: 4, h: 2 },
+    { id: "w_temps",  type: "chart_temps",  title: "Temperatura por sensor (atual)", w: 8, h: 2 },
+    { id: "w_trend",  type: "chart_trend",  title: "Tendência de temperatura (6h)", w: 12, h: 3, hours: 6 }
+  ];
+
+  let widgets = [];
+
+  async function loadLayout() {
+    try {
+      const r = await fetch("/api/layout", { headers: { "Accept": "application/json" }});
+      if (r.ok) {
+        const json = await r.json();
+        if (Array.isArray(json) && json.length) {
+          widgets = json;
+          localStorage.setItem(LS_KEY, JSON.stringify(json));
+          return;
+        }
+      }
+    } catch (_) {}
+    const local = JSON.parse(localStorage.getItem(LS_KEY) || "[]");
+    widgets = (Array.isArray(local) && local.length) ? local : DEFAULT_WIDGETS.slice();
+    localStorage.setItem(LS_KEY, JSON.stringify(widgets));
+  }
+
+  async function saveLayout() {
+    localStorage.setItem(LS_KEY, JSON.stringify(widgets));
+    try {
+      await fetch("/api/layout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ layout: widgets })
+      });
+    } catch (_) {}
+  }
+
+  /* ---------- Renderização de widgets ---------- */
+  function colClass(w) {
+    const width = Math.min(Math.max(parseInt(w)||6, 1), 12);
+    return `widget-col col-12 col-md-${width}`;
+  }
+
+  function renderWidget(w) {
+    const wrap = document.createElement("div");
+    wrap.className = colClass(w.w);
+    wrap.dataset.id = w.id;
+
+    const el = document.createElement("div");
+    el.className = "card h-100";
+    el.innerHTML = `
+      <div class="card-header d-flex justify-content-between align-items-center" style="cursor: move;">
+        <strong>${w.title || w.type}</strong>
+        <div class="btn-group">
+          <button class="btn btn-sm btn-outline-secondary btn-refresh" title="Atualizar">↻</button>
+          <button class="btn btn-sm btn-outline-danger btn-remove" title="Remover">✕</button>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="chart-wrap d-none" id="ch_${w.id}">
+          <canvas id="c_${w.id}"></canvas>
+        </div>
+        <div class="gauge-wrap d-none" id="g_${w.id}">
+          <canvas id="gc_${w.id}"></canvas>
+          <div class="gauge-center" id="gv_${w.id}">—</div>
+          <div class="gauge-sub" id="gs_${w.id}"></div>
+        </div>
+        <div class="table-responsive d-none" id="t_${w.id}">
+          <table class="table table-sm mb-0"><tbody></tbody></table>
+        </div>
+        <div class="text-muted small mt-2" id="m_${w.id}"></div>
+      </div>
+    `;
+    wrap.appendChild(el);
+    return wrap;
+  }
+
+  async function fetchJSON(url){ const r = await fetch(url); if(!r.ok) throw new Error(`${r.status} ${r.statusText}`); return r.json(); }
+
+  async function loadWidgetData(w) {
+    const meta = document.getElementById(`m_${w.id}`);
+    const show = (id, vis=true) => document.getElementById(id).classList.toggle("d-none", !vis);
+    try {
+      if (w.type === "chart_status") {
+        show(`ch_${w.id}`, true); show(`g_${w.id}`, false); show(`t_${w.id}`, false);
+        const ctx = document.getElementById(`c_${w.id}`).getContext("2d");
+        if (window[w.id]) window[w.id].destroy();
+        window[w.id] = new Chart(ctx, {
+          type: "doughnut",
+          data: { labels: ["Online","Offline"], datasets: [{ data: [online, offline], backgroundColor: ["#28a745","#dc3545"] }] },
+          options: { responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:"bottom"} } }
+        });
+        meta.textContent = "";
+
+      } else if (w.type === "chart_temps") {
+        show(`ch_${w.id}`, true); show(`g_${w.id}`, false); show(`t_${w.id}`, false);
+        const ctx = document.getElementById(`c_${w.id}`).getContext("2d");
+        if (window[w.id]) window[w.id].destroy();
+        window[w.id] = new Chart(ctx, {
+          type: "bar",
+          data: {
+            labels,
+            datasets: [{
+              label: "Temp (°C)",
+              data: temps,
+              backgroundColor: temps.map(t=>{
+                if (t===null) return "#6c757d";
+                if (t>5) return "#dc3545";
+                if (t<0) return "#0d6efd";
+                return "#28a745";
+              })
+            }]
+          },
+          options: {
+            responsive:true, maintainAspectRatio:false, indexAxis:'y',
+            plugins:{ tooltip:{ callbacks:{ label:(ctx)=>`${ctx.raw} °C | RSSI: ${rssis[ctx.dataIndex]} dBm | Bat: ${batt[ctx.dataIndex]}%` } } },
+            scales:{ x:{ title:{display:true,text:"°C"} } }
+          }
+        });
+        meta.textContent = "";
+
+      } else if (w.type === "chart_trend") {
+        show(`ch_${w.id}`, true); show(`g_${w.id}`, false); show(`t_${w.id}`, false);
+        const hours = Number(w.hours || 6);
+        const data = await fetchJSON(`/metrics/avg-temp?hours=${hours}`);
+        const ctx = document.getElementById(`c_${w.id}`).getContext("2d");
+        let grad = ctx.createLinearGradient(0,0,0,200);
+        grad.addColorStop(0,"rgba(13,110,253,0.25)"); grad.addColorStop(1,"rgba(13,110,253,0.0)");
+        if (window[w.id]) window[w.id].destroy();
+        window[w.id] = new Chart(ctx, {
+          type: "line",
+          data: { labels: (data.labels||[]).map(ts=>new Date(ts).toLocaleTimeString('pt-PT',{hour:'2-digit',minute:'2-digit'})),
+                  datasets: [{ data: data.values||[], fill:true, backgroundColor:grad, borderColor:"#0d6efd", tension:0.3, pointRadius:0 }]},
+          options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}} }
+        });
+        meta.textContent = `janela: ${hours}h`;
+
+      } else if (w.type === "card_temp") {
+        const list = await fetchJSON("/sensors.json");
+        const s = list.find(x => x.id === w.sensor_id);
+        const temp = (s && typeof s.temp === "number") ? s.temp : null;
+
+        show(`g_${w.id}`, true); show(`ch_${w.id}`, false); show(`t_${w.id}`, false);
+
+        const MIN = (w.min !== undefined) ? Number(w.min) : -25;
+        const MAX = (w.max !== undefined) ? Number(w.max) : 10;
+
+        const color = temp===null ? "#6c757d" : (temp>5 ? "#dc3545" : (temp<0 ? "#0d6efd" : "#28a745"));
+        const clamp = (x,a,b)=>Math.max(a,Math.min(b,x));
+        const pct = (temp === null) ? 0 : (clamp((temp - MIN) / (MAX - MIN), 0, 1));
+        document.getElementById(`gv_${w.id}`).textContent = (temp===null) ? "—" : `${temp.toFixed(1)}°C`;
+        document.getElementById(`gs_${w.id}`).textContent = s ? (s.name || s.id) : (w.sensor_id || "");
+        const ctx = document.getElementById(`gc_${w.id}`).getContext("2d");
+        if (window[w.id]) window[w.id].destroy();
+        window[w.id] = new Chart(ctx, {
+          type: "doughnut",
+          data: { labels:["valor","restante"], datasets:[{ data:[pct,1-pct], backgroundColor:[color,"#e9ecef"], borderWidth:0 }] },
+          options: { responsive:true, maintainAspectRatio:false, cutout:"70%", rotation:-90, circumference:180, plugins:{legend:{display:false}} }
+        });
+        meta.textContent = s ? `Atualizado: ${s.updated_at}` : "Sensor não encontrado";
+
+      } else if (w.type === "table_alarms") {
+        const html = await fetch("/alarmes?status=open", { headers: { "X-Requested-With":"fetch" }}).then(r=>r.text());
+        const tmp = document.createElement("div"); tmp.innerHTML = html;
+        const tbody = tmp.querySelector("tbody");
+        const tableDiv = document.getElementById(`t_${w.id}`);
+        const myTBody = tableDiv.querySelector("tbody");
+        myTBody.innerHTML = tbody ? tbody.innerHTML : "<tr><td class='text-muted'>Sem dados</td></tr>";
+        show(`t_${w.id}`, true); show(`g_${w.id}`, false); show(`ch_${w.id}`, false);
+        meta.textContent = "";
+      }
+    } catch (e) {
+      meta.textContent = "Erro a carregar widget";
+      console.error(e);
+    }
+  }
+
+function enableDnD() {
+  const container = document.getElementById("widgets");
+  if (!container) { console.warn("DnD: container #widgets não encontrado"); return; }
+
+  if (!window.Sortable) { 
+    console.error("DnD: SortableJS não está carregado"); 
+    return; 
+  }
+
+  // se já existir, destrói (para apanhar DOM novo)
+  const old = Sortable.get(container);
+  if (old) old.destroy();
+
+  const sortable = Sortable.create(container, {
+    animation: 150,
+    handle: ".card-header",         // arrasta pelo header
+    draggable: ".widget-col",       // os filhos diretos que criamos
+    ghostClass: "sortable-ghost",
+    chosenClass: "sortable-chosen",
+    forceFallback: true,
+    fallbackOnBody: true,
+    swapThreshold: 0.65,
+    filter: ".btn, .btn *, .form-control, .form-select, .form-check-input",
+    preventOnFilter: true,
+    onChoose: () => console.log("DnD: choose"),
+    onStart: () => console.log("DnD: start"),
+    onEnd: () => {
+      console.log("DnD: end");
+      const order = Array.from(container.querySelectorAll("[data-id]")).map(el => el.dataset.id);
+      widgets.sort((a,b)=> order.indexOf(a.id) - order.indexOf(b.id));
+      saveLayout();
+    }
+  });
+
+  console.log("DnD: instância ativa?", !!sortable);
+}
+
+  function mountAll(){
+    const container = document.getElementById("widgets");
+    container.innerHTML = "";
+    widgets.forEach(w => container.appendChild(renderWidget(w)));
+    widgets.forEach(loadWidgetData);
+
+    // remover e refrescar
+    container.querySelectorAll(".btn-remove").forEach(btn=>{
+      btn.addEventListener("click",(ev)=>{
+        const id = ev.target.closest("[data-id]").dataset.id;
+        const idx = widgets.findIndex(x=>x.id===id);
+        if(idx>=0){ widgets.splice(idx,1); saveLayout(); mountAll(); }
+      });
+    });
+    container.querySelectorAll(".btn-refresh").forEach(btn=>{
+      btn.addEventListener("click",(ev)=>{
+        const id = ev.target.closest("[data-id]").dataset.id;
+        const w = widgets.find(x=>x.id===id);
+        if(w) loadWidgetData(w);
+      });
+    });
+
+    enableDnD();
+  }
+
+  // Modal: criar widget (sem submit de página)
+  const modalEl = document.getElementById("addWidgetModal");
+  const modal   = (window.bootstrap && bootstrap.Modal.getOrCreateInstance(modalEl)) || null;
+  const addForm = document.getElementById("addWidgetForm");
+  const addBtn  = document.getElementById("addWidgetSubmit");
+
+  addForm?.addEventListener("submit", (e) => e.preventDefault());
+  addBtn?.addEventListener("click", async () => {
+    const fd = new FormData(addForm);
+    const w = Object.fromEntries(fd.entries());
+    if (!w.type) return;
+
+    w.id = "w_" + Date.now().toString(36) + Math.random().toString(36).slice(2,6);
+    w.w = parseInt(w.w || 6, 10);
+    w.h = parseInt(w.h || 1, 10);
+
+    widgets.push(w);
+    await saveLayout();
+    mountAll();
+
+    // fecha modal se bootstrap existir
+    if (modal) modal.hide();
+    addForm.reset();
+  });
+
+  // Boot
+  (async function init(){
+    await loadLayout();
+    mountAll();
+  })();
+});
+</script>

@@ -1,0 +1,4 @@
+<div class="alert alert-danger" role="alert">
+  <strong>Erro:</strong> <%= error?.message || error %>
+</div>
+<pre><%= (error && error.stack) ? error.stack : '' %></pre>

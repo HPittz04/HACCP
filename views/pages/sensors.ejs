@@ -1,0 +1,248 @@
+<div class="card">
+  <div class="card-header d-flex align-items-center justify-content-between">
+    <h6 class="mb-0">Lista de sensores</h6>
+    <input id="sensorSearch" class="form-control form-control-sm" style="max-width:260px" placeholder="Pesquisar... (nome/id)">
+  </div>
+
+  <div class="table-responsive">
+    <table class="table align-items-center mb-0" id="sensorsTable">
+      <thead>
+        <tr>
+          <th>Nome</th>
+          <th class="text-center">Temperatura</th>
+          <th class="text-center">RSSI</th>
+          <th class="text-center">Bateria</th>
+          <th class="text-center">Atualizado</th>
+          <th class="text-center">Ações</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% sensores.forEach(s => { %>
+          <tr data-name="<%= (s.name||'').toLowerCase() %>" data-id="<%= (s.id||'').toLowerCase() %>">
+            <td>
+              <strong><%= s.name || s.id %></strong><br>
+              <small class="text-muted"><code><%= s.id %></code></small>
+            </td>
+            <td class="text-center">
+              <% const t = (typeof s.temp === 'number') ? s.temp : null; %>
+              <span class="<%= t === null ? 'text-muted' : (t>5?'text-danger': (t<0?'text-primary':'text-success')) %>">
+                <%= t === null ? '—' : (t.toFixed ? t.toFixed(1) : t) %>°C
+              </span>
+              <div class="mini-chart-wrap mt-1">
+                <canvas class="spark" width="100" height="24" data-sensor="<%= s.id %>"></canvas>
+              </div>
+            </td>
+            <td class="text-center"><%= s.rssi %> dBm</td>
+            <td class="text-center"><%= s.battery %>%</td>
+            <td class="text-center"><%= s.updated_at %></td>
+            <td class="text-center">
+              <a href="/sensores/<%= s.id %>/historico" class="btn btn-outline btn-sm">
+                Histórico
+              </a>
+            </td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Modal: Histórico do Sensor -->
+<div class="modal fade" id="sensorHistoryModal" tabindex="-1" aria-labelledby="sensorHistoryLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="sensorHistoryLabel">Histórico — <span id="mSensorName"></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3">
+          <div class="col-12">
+            <div class="chart-wrap" style="height: 320px;">
+              <canvas id="sensorHistoryChart"></canvas>
+            </div>
+          </div>
+          <div class="col-12 d-flex gap-2 justify-content-end">
+            <button class="btn btn-sm btn-outline-secondary m-range" data-mins="60">1h</button>
+            <button class="btn btn-sm btn-outline-secondary m-range" data-mins="360">6h</button>
+            <button class="btn btn-sm btn-outline-secondary m-range" data-mins="1440">24h</button>
+            <button class="btn btn-sm btn-outline-secondary m-range" data-mins="10080">7d</button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <small class="text-muted me-auto" id="mMeta"></small>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+  .mini-chart-wrap { position: relative; height: 24px; }
+  .mini-chart-wrap canvas { width: 100% !important; height: 24px !important; }
+</style>
+
+<script>
+  // -------- Pesquisa na tabela --------
+  const searchInput = document.getElementById('sensorSearch');
+  const table = document.getElementById('sensorsTable');
+  searchInput?.addEventListener('input', (e) => {
+    const q = e.target.value.trim().toLowerCase();
+    table.querySelectorAll('tbody tr').forEach(tr => {
+      const name = tr.dataset.name || '';
+      const id = tr.dataset.id || '';
+      tr.style.display = (name.includes(q) || id.includes(q)) ? '' : 'none';
+    });
+  });
+
+  // -------- Sparklines in-row (mock/real via endpoint) --------
+  const sparkCanvases = Array.from(document.querySelectorAll('canvas.spark'));
+  const sparkCharts = {};
+
+  async function loadSpark(sensorId) {
+    try {
+      const res = await fetch(`/metrics/sensor-history?id=${encodeURIComponent(sensorId)}&mins=120`);
+      const json = await res.json();
+      return json; // {labels:[...ISO], values:[...Number]}
+    } catch (e) {
+      console.error('spark error', sensorId, e);
+      return { labels: [], values: [] };
+    }
+  }
+
+  function renderSpark(canvas, series) {
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (sparkCharts[canvas]) sparkCharts[canvas].destroy();
+    sparkCharts[canvas] = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: series.labels.map(ts => new Date(ts).toLocaleTimeString('pt-PT',{hour:'2-digit',minute:'2-digit'})),
+        datasets: [{
+          data: series.values,
+          borderWidth: 1,
+          borderColor: '#198754',
+          pointRadius: 0,
+          fill: false,
+          tension: 0.25
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display:false }, tooltip: { enabled:false } },
+        scales: { x: { display:false }, y: { display:false } }
+      }
+    });
+  }
+
+  // Carregar sparklines (lazy)
+  sparkCanvases.forEach(async (cv) => {
+    const id = cv.dataset.sensor;
+    const series = await loadSpark(id);
+    if (series.values && series.values.length) renderSpark(cv, series);
+  });
+
+  // -------- Modal Histórico (Chart grande) --------
+  let modalChart = null;
+  const modalEl = document.getElementById('sensorHistoryModal');
+  const modal = new bootstrap.Modal(modalEl);
+  const mName = document.getElementById('mSensorName');
+  const mMeta = document.getElementById('mMeta');
+
+  async function fetchHistory(id, mins) {
+    const res = await fetch(`/metrics/sensor-history?id=${encodeURIComponent(id)}&mins=${mins}`);
+    return res.json(); // {labels, values, stats?}
+  }
+
+  async function openHistory(id, name, mins=360) {
+    mName.textContent = name;
+    document.querySelectorAll('.m-range').forEach(b => b.classList.remove('btn-primary'));
+    document.querySelector(`.m-range[data-mins="${mins}"]`)?.classList.add('btn-primary');
+
+    const data = await fetchHistory(id, mins);
+    const ctx = document.getElementById('sensorHistoryChart').getContext('2d');
+
+    if (modalChart) modalChart.destroy();
+
+    // gradiente
+    let gradient = ctx.createLinearGradient(0,0,0,200);
+    gradient.addColorStop(0,"rgba(25,135,84,0.25)");
+    gradient.addColorStop(1,"rgba(25,135,84,0.00)");
+
+    modalChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: (data.labels||[]).map(ts => new Date(ts).toLocaleString('pt-PT', {hour:'2-digit',minute:'2-digit', day:'2-digit', month:'2-digit'})),
+        datasets: [{
+          label: 'Temperatura (°C)',
+          data: data.values || [],
+          fill: true,
+          backgroundColor: gradient,
+          borderColor: '#198754',
+          borderWidth: 2,
+          pointRadius: 0,
+          tension: 0.25
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { label: (ctx)=>` ${ctx.formattedValue} °C` } }
+        },
+        scales: { y: { beginAtZero:false, title: { display:true, text:'°C' } } }
+      }
+    });
+
+    if (data.stats) {
+      mMeta.textContent = `min: ${data.stats.min}°C • avg: ${data.stats.avg}°C • max: ${data.stats.max}°C • pontos: ${data.values.length}`;
+    } else {
+      mMeta.textContent = `pontos: ${data.values ? data.values.length : 0}`;
+    }
+
+    modal.show();
+  }
+
+  // Botões abrir modal
+  document.querySelectorAll('.btn-history').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = btn.dataset.sensorId;
+      const name = btn.dataset.sensorName;
+      openHistory(id, name, 360); // default 6h
+    });
+  });
+
+  // Botões de range dentro do modal
+  document.querySelectorAll('.m-range').forEach(b => {
+    b.addEventListener('click', async (ev) => {
+      const mins = Number(ev.currentTarget.dataset.mins||360);
+      document.querySelectorAll('.m-range').forEach(x => x.classList.remove('btn-primary'));
+      ev.currentTarget.classList.add('btn-primary');
+
+      // reusar id/nome já no título
+      const name = mName.textContent;
+      // tentamos descobrir o id pelo botão 'active' anterior (não temos guardado)
+      // solução: guarda no dataset do modal quando abre:
+      const id = modalEl.dataset.sensorId;
+      const data = await fetchHistory(id, mins);
+
+      modalChart.data.labels = (data.labels||[]).map(ts => new Date(ts).toLocaleString('pt-PT',{hour:'2-digit',minute:'2-digit', day:'2-digit', month:'2-digit'}));
+      modalChart.data.datasets[0].data = data.values || [];
+      modalChart.update();
+
+      if (data.stats) {
+        mMeta.textContent = `min: ${data.stats.min}°C • avg: ${data.stats.avg}°C • max: ${data.stats.max}°C • pontos: ${data.values.length}`;
+      } else {
+        mMeta.textContent = `pontos: ${data.values ? data.values.length : 0}`;
+      }
+    });
+  });
+
+  // Guarda o id do sensor quando o modal abre (para os botões usarem)
+  document.querySelectorAll('.btn-history').forEach(btn => {
+    btn.addEventListener('click', () => {
+      modalEl.dataset.sensorId = btn.dataset.sensorId;
+    });
+  });
+</script>

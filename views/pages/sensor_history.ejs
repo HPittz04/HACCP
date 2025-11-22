@@ -1,0 +1,202 @@
+<!-- views/pages/sensor_history.ejs -->
+
+<section class="container">
+  <div class="flex items-center justify-between mb-4">
+    <div>
+      <h1 class="text-2xl font-semibold">Histórico do Sensor</h1>
+      <p class="text-sm text-muted"><%= sensor?.name || id %> (<%= id %>)</p>
+    </div>
+    <a href="/sensores" class="link">↩ Voltar</a>
+  </div>
+
+  <form id="range-form" class="grid grid-cols-1 md:grid-cols-6 gap-3 items-end mb-4">
+    <div class="md:col-span-2">
+      <label class="label">Início</label>
+      <input id="start" name="start" type="datetime-local" class="input" value="<%= startLocal %>">
+    </div>
+    <div class="md:col-span-2">
+      <label class="label">Fim</label>
+      <input id="end" name="end" type="datetime-local" class="input" value="<%= endLocal %>">
+    </div>
+    <div class="md:col-span-2 flex gap-2">
+      <button type="submit" class="btn">Aplicar</button>
+      <button type="button" id="reset" class="btn btn-secondary">Reset</button>
+      <button type="button" id="pdf" class="btn btn-outline">PDF</button>
+    </div>
+  </form>
+
+  <div class="card mb-4">
+    <div class="card-body">
+      <div class="text-sm text-muted mb-2" id="stats">Sem dados no intervalo selecionado.</div>
+      <div id="chart-wrap">
+        <canvas id="histChart" height="120"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body overflow-x-auto">
+      <table class="table w-full text-sm" id="data-table">
+        <thead>
+          <tr>
+            <th>Timestamp</th>
+            <th>Temperatura</th>
+            <th>RSSI</th>
+            <th>Bateria</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- Chart.js & jsPDF via CDN (rápido de integrar) -->
+<script src="/js/sensor_history.js"></script>
+
+<script>
+(() => {
+  const sensorId = "<%= id %>";
+  const qsStart = "<%= startISO %>";
+  const qsEnd   = "<%= endISO %>";
+
+  const startEl = document.getElementById('start');
+  const endEl   = document.getElementById('end');
+  const form    = document.getElementById('range-form');
+  const resetBt = document.getElementById('reset');
+  const pdfBt   = document.getElementById('pdf');
+  const statsEl = document.getElementById('stats');
+  const tbody   = document.querySelector('#data-table tbody');
+
+  let chart;
+
+  function toLocaleDTInput(iso) {
+    const d = new Date(iso);
+    const pad = n => String(n).padStart(2,'0');
+    const yyyy = d.getFullYear();
+    const mm = pad(d.getMonth()+1);
+    const dd = pad(d.getDate());
+    const hh = pad(d.getHours());
+    const mi = pad(d.getMinutes());
+    return `${yyyy}-${mm}-${dd}T${hh}:${mi}`;
+  }
+
+  function renderChart(labels, values) {
+    const ctx = document.getElementById('histChart').getContext('2d');
+    if (chart) chart.destroy();
+    chart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [{
+          label: 'Temperatura (°C)',
+          data: values,
+          fill: false,
+          tension: 0.3,
+          pointRadius: 0,
+          borderWidth: 2
+        }]
+      },
+      options: {
+        responsive: true,
+        parsing: false,
+        scales: {
+          x: { type: 'time', time: { unit: 'hour' } },
+          y: { ticks: { callback: v => v + '°C' } }
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: (ctx) => ` ${ctx.parsed.y}°C`
+            }
+          }
+        }
+      }
+    });
+  }
+
+  async function loadData(startISO, endISO) {
+    const url = new URL(window.location.origin + '/metrics/sensor-history-range');
+    url.searchParams.set('id', sensorId);
+    if (startISO) url.searchParams.set('start', startISO);
+    if (endISO)   url.searchParams.set('end', endISO);
+
+    const res = await fetch(url.toString());
+    const data = await res.json(); // {labels, values, rows, stats?}
+    const { labels=[], values=[], rows=[], stats } = data || {};
+
+    // Stats
+    if (rows.length) {
+      const s = stats || {};
+      statsEl.textContent = `Mín: ${s.min}°C • Máx: ${s.max}°C • Média: ${s.avg}°C`;
+    } else {
+      statsEl.textContent = 'Sem dados no intervalo selecionado.';
+    }
+
+    // Chart + table
+    renderChart(labels.map(x => new Date(x)), values);
+    tbody.innerHTML = rows.map(r => `
+      <tr>
+        <td>${new Date(r.timestamp).toLocaleString()}</td>
+        <td>${r.temperature}°C</td>
+        <td>${r.rssi ?? '—'}</td>
+        <td>${r.battery != null ? r.battery + '%' : '—'}</td>
+      </tr>
+    `).join('');
+  }
+
+  // Inicial
+  loadData(qsStart, qsEnd);
+
+  // Form
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const s = new Date(startEl.value);
+    const e2 = new Date(endEl.value);
+    // ISO “UTC” (alinha com backend)
+    const startISO = new Date(s.getTime() - s.getTimezoneOffset()*60000).toISOString();
+    const endISO   = new Date(e2.getTime() - e2.getTimezoneOffset()*60000).toISOString();
+    loadData(startISO, endISO);
+  });
+
+  resetBt.addEventListener('click', () => {
+    const now = new Date();
+    const start = new Date(now.getTime() - 24*60*60*1000);
+    startEl.value = toLocaleDTInput(start.toISOString());
+    endEl.value   = toLocaleDTInput(now.toISOString());
+  });
+
+  // PDF
+  pdfBt.addEventListener('click', () => {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+
+    doc.setFontSize(16);
+    doc.text(`Histórico de Temperatura — ${"<%= sensor?.name || id %>"} (${sensorId})`, 40, 40);
+    doc.setFontSize(10);
+    doc.text(`Intervalo: ${new Date(startEl.value).toLocaleString()} — ${new Date(endEl.value).toLocaleString()}`, 40, 58);
+
+    // Tabela
+    const rows = Array.from(tbody.querySelectorAll('tr')).map(tr => {
+      const tds = tr.querySelectorAll('td');
+      return [tds[0].textContent, tds[1].textContent, tds[2].textContent, tds[3].textContent];
+    });
+
+    doc.autoTable({
+      head: [['Timestamp', 'Temperatura', 'RSSI', 'Bateria']],
+      body: rows,
+      startY: 80,
+      styles: { fontSize: 9 },
+      theme: 'grid',
+      didDrawPage: () => {
+        const str = `HACCP Guard — ${new Date().toLocaleString()}`;
+        doc.setFontSize(9);
+        doc.text(str, 40, doc.internal.pageSize.getHeight()-20);
+      }
+    });
+
+    doc.save(`historico_${sensorId}.pdf`);
+  });
+})();
+</script>
